@@ -77,7 +77,7 @@ Python does not decide whether a question is about leave, employee information, 
                                  ▼
                          ┌───────────────┐
                          │    QWEN3      │
-                         │    LLM        │
+                         │      LLM      │
                          └───────┬───────┘
                                  │
                                  ▼
@@ -154,25 +154,92 @@ These are simulated tools for learning. They do not connect to a real HR or IT s
 
 ---
 
+## 🗄️ Data
+
+For simplicity, the employee information and leave balances are currently stored directly inside `tools.py`.
+
+For example:
+
+```python
+employees = {
+    "EMP001": {
+        "name": "John",
+        "department": "Data Science",
+        "role": "Data Scientist"
+    },
+    "EMP002": {
+        "name": "Sarah",
+        "department": "Human Resources",
+        "role": "HR Manager"
+    }
+}
+```
+
+The leave balances are also stored inside `tools.py`:
+
+```python
+leave_balances = {
+    "EMP001": 12,
+    "EMP002": 18
+}
+```
+
+This keeps the project intentionally simple so the focus remains on understanding **LLM tool calling and the agent loop**.
+
+In a real enterprise application, this data could later be moved to a database, API, or other external data source.
+
+---
+
 ## 🔄 Example Agent Flow
 
 Suppose the user asks:
 
 ```text
-How many days of leave does EMP002 have?
+Tell me EMP002's department and how many days of leave they have.
 ```
+
+This question requires information from **two different tools**.
 
 ### Step 1 — User asks a question
 
 ```text
-How many days of leave does EMP002 have?
+Tell me EMP002's department and how many days of leave they have.
 ```
 
 ### Step 2 — Qwen receives the question and available tools
 
-Qwen determines that the `check_leave_balance` tool is relevant.
+Qwen determines that it needs employee information first.
 
 Conceptually:
+
+```text
+Tool: get_employee_info
+
+Arguments:
+employee_id = EMP002
+```
+
+### Step 3 — Python executes the selected tool
+
+```python
+get_employee_info("EMP002")
+```
+
+### Step 4 — The tool returns data
+
+```text
+{
+    "name": "Sarah",
+    "department": "Human Resources",
+    "role": "HR Manager"
+}
+```
+
+### Step 5 — The result is sent back to Qwen
+
+Qwen now knows the department but still needs the leave balance.
+
+It decides to call another tool:
 
 ```text
 Tool: check_leave_balance
@@ -181,26 +248,44 @@ Arguments:
 employee_id = EMP002
 ```
 
-### Step 3 — Python executes the selected tool
-
-Python receives Qwen's structured tool call and executes:
+### Step 6 — Python executes the second tool
 
 ```python
 check_leave_balance("EMP002")
 ```
 
-### Step 4 — The tool returns data
+The tool returns:
 
 ```text
 EMP002 has 18 days of leave remaining.
 ```
 
-### Step 5 — The result is sent back to Qwen
-
-Qwen receives the tool result and generates the final response.
+### Step 7 — Qwen generates the final answer
 
 ```text
-EMP002 has 18 days of leave remaining.
+EMP002 is in Human Resources and has 18 days of leave remaining.
+```
+
+This demonstrates the **agent loop**:
+
+```text
+User
+  ↓
+Qwen3
+  ↓
+Tool
+  ↓
+Tool Result
+  ↓
+Qwen3
+  ↓
+Another Tool
+  ↓
+Tool Result
+  ↓
+Qwen3
+  ↓
+Final Answer
 ```
 
 ---
@@ -216,8 +301,8 @@ EMP002 has 18 days of leave remaining.
 │       executes tools, and generates the final answer.
 │
 ├── tools.py
-│       Contains the Python functions that the agent
-│       is allowed to use.
+│       Contains the Python tool functions and
+│       the sample employee/leave data used by them.
 │
 ├── requirements.txt
 │       Python dependencies.
@@ -302,26 +387,56 @@ python app.py
 Example:
 
 ```text
-What can I help you with? How many days of leave does EMP002 have?
+What can I help you with? Tell me EMP002's department and how many days of leave they have.
 ```
 
-The application will show the agent's decision, tool call, tool result, and final answer.
+The application will show:
+
+* Qwen3's thinking
+* Tool calls
+* Tool arguments
+* Tool results
+* Final answer
 
 Example:
 
 ```text
---- Qwen's Decision ---
+--- Qwen Thinking ---
+
+The user needs the employee's department and leave balance.
+I need to retrieve the employee information first.
 
 --- Tool Call ---
+
+Tool: get_employee_info
+Arguments: {'employee_id': 'EMP002'}
+
+--- Tool Result ---
+
+{'name': 'Sarah',
+ 'department': 'Human Resources',
+ 'role': 'HR Manager'}
+
+--- Qwen Thinking ---
+
+I have the department information.
+I still need to check the employee's leave balance.
+
+--- Tool Call ---
+
 Tool: check_leave_balance
 Arguments: {'employee_id': 'EMP002'}
 
 --- Tool Result ---
+
 EMP002 has 18 days of leave remaining.
 
 --- Final Answer ---
-EMP002 has 18 days of leave remaining.
+
+EMP002 is in Human Resources and has 18 days of leave remaining.
 ```
+
+The exact Qwen3 thinking output may differ between runs.
 
 ---
 
@@ -336,7 +451,10 @@ This project focuses on understanding the fundamentals of an AI agent:
 * How Python executes the requested tool
 * How tool results are returned to the LLM
 * How the LLM converts tool results into a final response
+* How an agent can call multiple tools sequentially
 * The difference between an LLM application and an agent
+* How the agent loop works
+* How an LLM can decide what action to take instead of relying on hard-coded Python rules
 
 ---
 
@@ -373,10 +491,49 @@ Result
   ↓
 LLM
   ↓
-Answer
+Decide again
+  ↓
+Another Tool OR Final Answer
 ```
 
 The main purpose of an agent is to **decide and take actions using tools**.
 
 ---
 
+## 🚀 Future Improvements
+
+This project is intentionally kept simple to understand the underlying mechanics before introducing agent frameworks.
+
+Planned improvements include:
+
+* Better error handling
+* Tool-call validation
+* Conversation memory
+* Move employee data to SQLite
+* Connect to PostgreSQL
+* Connect tools to REST APIs
+* More realistic enterprise tools
+* Agentic RAG
+* LangGraph implementation
+* Agent tracing and evaluation
+* Production deployment
+
+---
+
+## 📚 Learning Path
+
+This project is part of a hands-on AI engineering learning path:
+
+```text
+01 — RAG
+      ↓
+02 — AI Agent
+      ↓
+03 — Agentic RAG
+      ↓
+04 — Agentic AI
+      ↓
+Production AI Systems
+```
+
+The projects are intentionally built from the fundamentals first, before introducing frameworks such as **LangChain** and **LangGraph**.

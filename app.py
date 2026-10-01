@@ -103,9 +103,11 @@
 # app.py
 
 # Import Ollama so Python can communicate with our local Qwen model.
+# app.py
+
 import ollama
 
-# Import the actual Python functions that our agent is allowed to use.
+# Import the actual Python functions that our agent can use.
 from tools import (
     get_employee_info,
     check_leave_balance,
@@ -113,104 +115,71 @@ from tools import (
 )
 
 
-# =========================================================
-# 1. DEFINE THE TOOLS FOR THE LLM
-# =========================================================
+# ---------------------------------------------------------
+# 1. Describe the tools to Qwen
+# ---------------------------------------------------------
+# These descriptions tell Qwen:
 #
-# We are telling Qwen:
+# "These are the things you are allowed to ask Python to do."
 #
-# "These are the tools you have access to.
-#  Decide yourself whether you need one."
-#
-# Notice that we are NOT telling Python:
-#
-#     if "leave" in question:
-#
-# Qwen makes that decision.
-# =========================================================
+# Qwen decides WHEN to use them.
+# Python actually executes them.
+# ---------------------------------------------------------
 
 tools = [
-
     {
         "type": "function",
-
         "function": {
             "name": "get_employee_info",
-
-            "description": (
-                "Get an employee's name, department, "
-                "and job role using their employee ID."
-            ),
-
+            "description": "Get an employee's name, department, and role.",
             "parameters": {
                 "type": "object",
-
                 "properties": {
                     "employee_id": {
                         "type": "string",
                         "description": "The employee ID, such as EMP001 or EMP002."
                     }
                 },
-
                 "required": ["employee_id"]
             }
         }
     },
 
-
     {
         "type": "function",
-
         "function": {
             "name": "check_leave_balance",
-
-            "description": (
-                "Check how many days of leave an employee "
-                "has remaining."
-            ),
-
+            "description": "Check how many leave days an employee has remaining.",
             "parameters": {
                 "type": "object",
-
                 "properties": {
                     "employee_id": {
                         "type": "string",
                         "description": "The employee ID, such as EMP001 or EMP002."
                     }
                 },
-
                 "required": ["employee_id"]
             }
         }
     },
 
-
     {
         "type": "function",
-
         "function": {
             "name": "create_it_ticket",
-
-            "description": (
-                "Create an IT support ticket when an employee "
-                "has an IT-related problem such as a laptop issue."
-            ),
-
+            "description": "Create an IT support ticket for an employee.",
             "parameters": {
                 "type": "object",
-
                 "properties": {
                     "employee_id": {
                         "type": "string",
                         "description": "The employee ID."
                     },
-
                     "issue": {
                         "type": "string",
-                        "description": "Description of the IT problem."
+                        "description": "The IT issue that needs to be reported."
                     }
                 },
-
                 "required": ["employee_id", "issue"]
             }
         }
@@ -218,28 +187,13 @@ tools = [
 ]
 
 
-# =========================================================
-# 2. GET THE USER'S QUESTION
-# =========================================================
+# ---------------------------------------------------------
+# 2. Ask the user for a question
+# ---------------------------------------------------------
 
 question = input("\nWhat can I help you with? ")
 
-
-# =========================================================
-# 3. SEND THE QUESTION + TOOLS TO QWEN
-# =========================================================
-#
-# This is the important part.
-#
-# We are saying:
-#
-# "Here is the user's question.
-# Here are the tools available to you.
-# Decide what to do."
-#
-# Python does NOT choose the tool.
-# =========================================================
-
+# The conversation starts with the user's question.
 messages = [
     {
         "role": "user",
@@ -248,79 +202,97 @@ messages = [
 ]
 
 
-response = ollama.chat(
-    model="qwen3:4b",
+# ---------------------------------------------------------
+# 3. Start the AGENT LOOP
+# ---------------------------------------------------------
+#
+# This is the important part.
+#
+# Qwen can:
+#
+#   A. Request a tool
+#   B. Receive the tool result
+#   C. Request another tool
+#   D. Finally answer the user
+#
+# Therefore we don't assume the agent needs exactly
+# one tool call.
+# ---------------------------------------------------------
 
-    messages=messages,
+while True:
 
-    tools=tools
-)
+    # Ask Qwen what it wants to do next.
+    response = ollama.chat(
+        model="qwen3:4b",
+        messages=messages,
+        tools=tools
+    )
+
+    # Get Qwen's message.
+    assistant_message = response["message"]
+
+    # ---------------------------------------------------------
+# Show Qwen's thinking, if the model returned it.
+# ---------------------------------------------------------
+#
+# Qwen3 can return a separate "thinking" field.
+# This is useful while we are learning how an agent works.
+#
+# It might look something like:
+#
+# "The user wants both the department and leave balance.
+#  I need to retrieve employee information and leave balance."
+#
+# The exact text depends on the model.
+# ---------------------------------------------------------
+
+    thinking = assistant_message.get("thinking", "")
+
+    if thinking:
+        print("\n--- Qwen Thinking ---")
+        print(thinking)
 
 
-# =========================================================
-# 4. LOOK AT QWEN'S DECISION
-# =========================================================
+# Add Qwen's response to the conversation history.
+    messages.append(assistant_message)
 
-assistant_message = response["message"]
+    # Check whether Qwen requested any tools.
+    tool_calls = assistant_message.get("tool_calls", [])
 
+    # -----------------------------------------------------
+    # If there are NO tool calls:
+    #
+    # Qwen has finished reasoning and produced its answer.
+    # -----------------------------------------------------
 
-print("\n--- Qwen's Decision ---")
-print(assistant_message)
+    if not tool_calls:
 
+        print("\n--- Final Answer ---")
+        print(assistant_message.get("content", ""))
 
-# =========================================================
-# 5. CHECK WHETHER QWEN REQUESTED A TOOL
-# =========================================================
-
-tool_calls = assistant_message.get("tool_calls", [])
-
-
-if not tool_calls:
-
-    # Qwen decided that no tool was necessary.
-
-    print("\n--- Final Answer ---")
-
-    print(assistant_message.get("content", ""))
+        break
 
 
-else:
-
-    # Qwen decided that one or more tools are necessary.
-
-    print("\n--- Tool Call ---")
+    # -----------------------------------------------------
+    # Qwen requested one or more tools.
+    # -----------------------------------------------------
 
     for tool_call in tool_calls:
 
-        # -------------------------------------------------
-        # Get the name of the tool Qwen selected.
-        # -------------------------------------------------
-
+        # Extract the tool name Qwen selected.
         tool_name = tool_call["function"]["name"]
 
-        # -------------------------------------------------
-        # Get the arguments Qwen selected.
-        # -------------------------------------------------
-
+        # Extract the arguments Qwen generated.
         arguments = tool_call["function"]["arguments"]
 
+        print("\n--- Tool Call ---")
         print("Tool:", tool_name)
         print("Arguments:", arguments)
 
 
-        # =================================================
-        # 6. PYTHON EXECUTES QWEN'S DECISION
-        # =================================================
-        #
-        # This is NOT Python deciding which tool to use.
-        #
-        # Qwen already decided.
-        #
-        # Python's job here is simply:
-        #
-        # "Qwen asked me to execute this function,
-        # so I will execute it."
-        # =================================================
+        # -------------------------------------------------
+        # Python executes the tool.
+        # -------------------------------------------------
 
         if tool_name == "get_employee_info":
 
@@ -328,13 +300,11 @@ else:
                 arguments["employee_id"]
             )
 
-
         elif tool_name == "check_leave_balance":
 
             tool_result = check_leave_balance(
                 arguments["employee_id"]
             )
-
 
         elif tool_name == "create_it_ticket":
 
@@ -343,55 +313,31 @@ else:
                 arguments["issue"]
             )
 
-
         else:
 
             tool_result = "Unknown tool."
 
 
-        print("\n--- Tool Result ---")
-        print(tool_result)
+        print("Tool Result:", tool_result)
 
 
-        # =================================================
-        # 7. GIVE THE TOOL RESULT BACK TO QWEN
-        # =================================================
+        # -------------------------------------------------
+        # IMPORTANT:
         #
-        # This is extremely important.
+        # Send the result back to Qwen.
         #
-        # Qwen made a decision.
+        # Qwen now sees:
         #
-        # The tool executed.
+        # "I asked Python to perform X,
+        #  and Python returned Y."
         #
-        # Now Qwen gets to see what happened.
-        # =================================================
-
-        messages.append(assistant_message)
+        # It can then decide what to do next.
+        # -------------------------------------------------
 
         messages.append(
             {
                 "role": "tool",
-
+                "tool_name": tool_name,
                 "content": str(tool_result)
             }
         )
-
-
-    # =====================================================
-    # 8. ASK QWEN FOR THE FINAL ANSWER
-    # =====================================================
-
-    final_response = ollama.chat(
-        model="qwen3:4b",
-
-        messages=messages,
-
-        tools=tools
-    )
-
-
-    print("\n--- Final Answer ---")
-
-    print(
-        final_response["message"]["content"]
-    )
